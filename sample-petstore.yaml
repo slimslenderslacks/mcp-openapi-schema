@@ -1,0 +1,219 @@
+openapi: 3.0.0
+info:
+  title: Petstore API
+  version: 1.0.0
+  description: A sample API for managing pets
+servers:
+  - url: https://petstore.example.com/api/v1
+paths:
+  /pets:
+    get:
+      summary: List all pets
+      description: Returns all pets from the system
+      operationId: listPets
+      tags:
+        - pets
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of pets to return
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: A paged array of pets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PetsResponse'
+              example:
+                pets:
+                  - id: 1
+                    name: "Fluffy"
+                    status: "available"
+                    category: "cat"
+                  - id: 2
+                    name: "Rex"
+                    status: "pending"
+                    category: "dog"
+                total: 2
+                limit: 20
+                offset: 0
+    post:
+      summary: Create a pet
+      description: Creates a new pet in the store
+      operationId: createPet
+      tags:
+        - pets
+      requestBody:
+        description: Pet to add to the store
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewPet'
+            example:
+              name: "Fluffy"
+              category: "cat"
+      responses:
+        '201':
+          description: Pet created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+              example:
+                id: 1
+                name: "Fluffy"
+                status: "available"
+                category: "cat"
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: 400
+                message: "Invalid input: name is required"
+  /pets/{petId}:
+    get:
+      summary: Get a pet by ID
+      description: Returns a single pet by ID
+      operationId: getPetById
+      tags:
+        - pets
+      parameters:
+        - name: petId
+          in: path
+          description: ID of pet to return
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: Expected response to a valid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Pet'
+              example:
+                id: 1
+                name: "Fluffy"
+                status: "available"
+                category: "cat"
+        '404':
+          description: Pet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: 404
+                message: "Pet not found"
+    delete:
+      summary: Delete a pet
+      description: Deletes a pet by ID
+      operationId: deletePet
+      tags:
+        - pets
+      parameters:
+        - name: petId
+          in: path
+          description: ID of pet to delete
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '204':
+          description: Pet deleted
+        '404':
+          description: Pet not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  schemas:
+    Pet:
+      type: object
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique identifier for the pet
+        name:
+          type: string
+          description: Name of the pet
+        status:
+          type: string
+          description: Status of the pet
+          enum:
+            - available
+            - pending
+            - sold
+          default: available
+        category:
+          type: string
+          description: Category of the pet
+    NewPet:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Name of the pet
+        category:
+          type: string
+          description: Category of the pet
+    PetsResponse:
+      type: object
+      required:
+        - pets
+        - total
+      properties:
+        pets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Pet'
+        total:
+          type: integer
+          description: Total number of pets
+        limit:
+          type: integer
+          description: Limit used in the request
+        offset:
+          type: integer
+          description: Offset used in the request
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: integer
+          format: int32
+          description: Error code
+        message:
+          type: string
+          description: Error message
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for authorization
+security:
+  - ApiKeyAuth: []
