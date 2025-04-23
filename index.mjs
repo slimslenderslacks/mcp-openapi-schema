@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import yaml from "js-yaml";
 import { Console } from "node:console";
-import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 
@@ -32,37 +32,25 @@ Examples:
   process.exit(0);
 }
 
-const schemaArg = args[0];
-
-const loadSchema = async () => {
+const loadSchema = (path) => {
   // Default to openapi.yaml if no argument provided
-  const schemaPath = resolve(schemaArg ?? "openapi.yaml");
+  const schemaPath = resolve(path);
 
   try {
-    // Parse and validate the OpenAPI document
-    return await SwaggerParser.validate(schemaPath, { validate: { schema: false } });
+    // Read and parse the file synchronously
+    const fileContent = readFileSync(schemaPath, 'utf8');
+    const parsedContent = yaml.load(fileContent);
+    return parsedContent;
   } catch (error) {
     console.error(`Error loading schema: ${error.message}`);
     process.exit(1);
   }
 };
 
-const openApiDoc = await loadSchema();
-
-// Extract schema name from file path or from the OpenAPI info
-const schemaName =
-  openApiDoc.info?.title ||
-  (schemaArg
-    ? schemaArg
-        .split("/")
-        .pop()
-        .replace(/\.(yaml|json)$/i, "")
-    : "openapi");
-
 const server = new McpServer({
-  name: `OpenAPI Schema: ${schemaName}`,
+  name: `OpenAPI Schema`,
   version: "1.0.0",
-  description: `Provides OpenAPI schema information for ${schemaName} (${openApiDoc.info?.version || "unknown version"})`,
+  description: `Provides OpenAPI schema information for schema files`,
 });
 
 // Helper to convert objects to YAML for better readability
@@ -72,7 +60,9 @@ const toYaml = (obj) => yaml.dump(obj, { lineWidth: 100, noRefs: true });
 server.tool(
   "list-endpoints",
   "Lists all API paths and their HTTP methods with summaries, organized by path",
-  () => {
+  { openapiSchemaPath: z.string().describe("Path to the OpenAPI schema file") },
+  ({ openapiSchemaPath }) => {
+    const openApiDoc = loadSchema(openapiSchemaPath);
     const pathMap = {};
 
     for (const [path, pathItem] of Object.entries(openApiDoc.paths || {})) {
@@ -106,8 +96,13 @@ server.tool(
 server.tool(
   "get-endpoint",
   "Gets detailed information about a specific API endpoint",
-  { path: z.string(), method: z.string() },
-  ({ path, method }) => {
+  {
+    openapiSchemaPath: z.string().describe("Path to the OpenAPI schema file"),
+    path: z.string(),
+    method: z.string()
+  },
+  ({ openapiSchemaPath, path, method }) => {
+    const openApiDoc = loadSchema(openapiSchemaPath);
     const pathItem = openApiDoc.paths?.[path];
     if (!pathItem) {
       return { content: [{ type: "text", text: `Path ${path} not found` }] };
@@ -147,8 +142,13 @@ server.tool(
 server.tool(
   "get-request-body",
   "Gets the request body schema for a specific endpoint",
-  { path: z.string(), method: z.string() },
-  ({ path, method }) => {
+  {
+    openapiSchemaPath: z.string().describe("Path to the OpenAPI schema file"),
+    path: z.string(),
+    method: z.string()
+  },
+  ({ openapiSchemaPath, path, method }) => {
+    const openApiDoc = loadSchema(openapiSchemaPath);
     const pathItem = openApiDoc.paths?.[path];
     if (!pathItem) {
       return { content: [{ type: "text", text: `Path ${path} not found` }] };
@@ -180,11 +180,13 @@ server.tool(
   "get-response-schema",
   "Gets the response schema for a specific endpoint, method, and status code",
   {
+    openapiSchemaPath: z.string().describe("Path to the OpenAPI schema file"),
     path: z.string(),
     method: z.string(),
     statusCode: z.string().default("200"),
   },
-  ({ path, method, statusCode }) => {
+  ({ openapiSchemaPath, path, method, statusCode }) => {
+    const openApiDoc = loadSchema(openapiSchemaPath);
     const pathItem = openApiDoc.paths?.[path];
     if (!pathItem) {
       return { content: [{ type: "text", text: `Path ${path} not found` }] };
@@ -227,8 +229,13 @@ server.tool(
 server.tool(
   "get-path-parameters",
   "Gets the parameters for a specific path",
-  { path: z.string(), method: z.string().optional() },
-  ({ path, method }) => {
+  {
+    openapiSchemaPath: z.string().describe("Path to the OpenAPI schema file"),
+    path: z.string(),
+    method: z.string().optional()
+  },
+  ({ openapiSchemaPath, path, method }) => {
+    const openApiDoc = loadSchema(openapiSchemaPath);
     const pathItem = openApiDoc.paths?.[path];
     if (!pathItem) {
       return { content: [{ type: "text", text: `Path ${path} not found` }] };
@@ -270,7 +277,9 @@ server.tool(
 server.tool(
   "list-components",
   "Lists all schema components (schemas, parameters, responses, etc.)",
-  () => {
+  { openapiSchemaPath: z.string().describe("Path to the OpenAPI schema file") },
+  ({ openapiSchemaPath }) => {
+    const openApiDoc = loadSchema(openapiSchemaPath);
     const components = openApiDoc.components || {};
     const result = {};
 
@@ -297,10 +306,12 @@ server.tool(
   "get-component",
   "Gets detailed definition for a specific component",
   {
+    openapiSchemaPath: z.string().describe("Path to the OpenAPI schema file"),
     type: z.string().describe("Component type (e.g., schemas, parameters, responses)"),
     name: z.string().describe("Component name"),
   },
-  ({ type, name }) => {
+  ({ openapiSchemaPath, type, name }) => {
+    const openApiDoc = loadSchema(openapiSchemaPath);
     const components = openApiDoc.components || {};
     const componentType = components[type];
 
@@ -339,39 +350,46 @@ server.tool(
 );
 
 // List security schemes
-server.tool("list-security-schemes", "Lists all available security schemes", () => {
-  const securitySchemes = openApiDoc.components?.securitySchemes || {};
-  const result = {};
+server.tool(
+  "list-security-schemes",
+  "Lists all available security schemes",
+  { openapiSchemaPath: z.string().describe("Path to the OpenAPI schema file") },
+  ({ openapiSchemaPath }) => {
+    const openApiDoc = loadSchema(openapiSchemaPath);
+    const securitySchemes = openApiDoc.components?.securitySchemes || {};
+    const result = {};
 
-  for (const [name, scheme] of Object.entries(securitySchemes)) {
-    result[name] = {
-      type: scheme.type,
-      description: scheme.description,
-      ...(scheme.type === "oauth2" ? { flows: Object.keys(scheme.flows || {}) } : {}),
-      ...(scheme.type === "apiKey" ? { in: scheme.in, name: scheme.name } : {}),
-      ...(scheme.type === "http" ? { scheme: scheme.scheme } : {}),
+    for (const [name, scheme] of Object.entries(securitySchemes)) {
+      result[name] = {
+        type: scheme.type,
+        description: scheme.description,
+        ...(scheme.type === "oauth2" ? { flows: Object.keys(scheme.flows || {}) } : {}),
+        ...(scheme.type === "apiKey" ? { in: scheme.in, name: scheme.name } : {}),
+        ...(scheme.type === "http" ? { scheme: scheme.scheme } : {}),
+      };
+    }
+
+    if (Object.keys(result).length === 0) {
+      return { content: [{ type: "text", text: "No security schemes defined in this API" }] };
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: toYaml(result),
+        },
+      ],
     };
-  }
-
-  if (Object.keys(result).length === 0) {
-    return { content: [{ type: "text", text: "No security schemes defined in this API" }] };
-  }
-
-  return {
-    content: [
-      {
-        type: "text",
-        text: toYaml(result),
-      },
-    ],
-  };
-});
+  },
+);
 
 // Get examples
 server.tool(
   "get-examples",
   "Gets examples for a specific component or endpoint",
   {
+    openapiSchemaPath: z.string().describe("Path to the OpenAPI schema file"),
     type: z.enum(["request", "response", "component"]).describe("Type of example to retrieve"),
     path: z.string().optional().describe("API path (required for request/response examples)"),
     method: z.string().optional().describe("HTTP method (required for request/response examples)"),
@@ -385,7 +403,8 @@ server.tool(
       .optional()
       .describe("Component name (required for component examples)"),
   },
-  ({ type, path, method, statusCode, componentType, componentName }) => {
+  ({ openapiSchemaPath, type, path, method, statusCode, componentType, componentName }) => {
+    const openApiDoc = loadSchema(openapiSchemaPath);
     if (type === "request") {
       if (!path || !method) {
         return {
@@ -548,8 +567,12 @@ server.tool(
 server.tool(
   "search-schema",
   "Searches across paths, operations, and schemas",
-  { pattern: z.string().describe("Search pattern (case-insensitive)") },
-  ({ pattern }) => {
+  {
+    openapiSchemaPath: z.string().describe("Path to the OpenAPI schema file"),
+    pattern: z.string().describe("Search pattern (case-insensitive)")
+  },
+  ({ openapiSchemaPath, pattern }) => {
+    const openApiDoc = loadSchema(openapiSchemaPath);
     const searchRegex = new RegExp(pattern, "i");
     const results = {
       paths: [],
